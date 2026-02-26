@@ -10,6 +10,8 @@ import PublishMessage from './components/PublishMessage';
 import LogPanel from './components/LogPanel';
 import DisconnectConfirm from './components/DisconnectConfirm';
 import { LogEntry } from './components/types';
+import { AgentWebSocket } from './lib/AgentWebSocket';
+import { isLocalAgentAvailable, shouldUseAgent, isRunningOnLocalhost } from './lib/localAgent';
 
 export default function StompDebugger() {
   // Connection State
@@ -19,6 +21,7 @@ export default function StompDebugger() {
   const [client, setClient] = useState<Client | null>(null);
   const [isDisconnecting, setIsDisconnecting] = useState(false);
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [agentAvailable, setAgentAvailable] = useState<boolean | null>(null); // null = checking
 
   // Messaging State
   const [subscribeDest, setSubscribeDest] = useState('/user/queue/messages');
@@ -36,6 +39,28 @@ export default function StompDebugger() {
     if (typeof window !== 'undefined') {
       (window as any).global = window;
     }
+  }, []);
+
+  // Detect Local Agent extension on mount
+  useEffect(() => {
+    if (isRunningOnLocalhost()) {
+      // Running locally, agent is not needed
+      setAgentAvailable(null);
+      return;
+    }
+    // On Vercel or production: detect agent
+    const detectAgent = async () => {
+      // Small delay to let content script inject
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const available = await isLocalAgentAvailable();
+      setAgentAvailable(available);
+      if (available) {
+        addLog('info', '🔌 Stomp Local Agent extension detected!');
+      } else {
+        addLog('info', '⚠️ Stomp Local Agent extension not detected. Install the extension to connect to localhost.');
+      }
+    };
+    detectAgent();
   }, []);
 
   // Auto scroll logs
@@ -95,12 +120,22 @@ export default function StompDebugger() {
       client.deactivate();
     }
 
+    const useAgent = shouldUseAgent(url);
     const brokerURL = buildBrokerUrl(url);
     
     addLog('info', `Đang kết nối tới ${url}...`);
     addLog('info', `[DEBUG] WebSocket URL: ${brokerURL}`);
-    if (url.startsWith('http')) {
+    if (useAgent) {
+      addLog('info', `[DEBUG] Sử dụng Local Agent extension proxy`);
+    } else if (url.startsWith('http')) {
       addLog('info', `[DEBUG] Sử dụng SockJS fallback`);
+    }
+
+    // Check if agent is needed but not available
+    if (useAgent && !agentAvailable) {
+      addLog('error', '✗ Cần cài đặt Stomp Local Agent extension để kết nối tới localhost từ Vercel.');
+      addLog('info', '💡 Gợi ý: Cài extension từ thư mục stomp-local-agent/ → chrome://extensions → Load unpacked');
+      return;
     }
 
     const stompClient = new Client({
@@ -116,8 +151,14 @@ export default function StompDebugger() {
       heartbeatOutgoing: 4000,
     });
 
-    // Fallback to SockJS if it's an http URL
-    if (url.startsWith('http')) {
+    // Use Agent WebSocket proxy when on Vercel targeting localhost
+    if (useAgent) {
+      stompClient.webSocketFactory = () => {
+        return new AgentWebSocket(url) as any;
+      };
+    }
+    // Fallback to SockJS if it's an http URL (running locally)
+    else if (url.startsWith('http')) {
       stompClient.webSocketFactory = () => {
         return new SockJS(url) as any;
       };
@@ -266,7 +307,7 @@ export default function StompDebugger() {
       <div className="max-w-7xl mx-auto space-y-4">
         
         {/* Header */}
-        <Header isConnected={isConnected} />
+        <Header isConnected={isConnected} agentAvailable={agentAvailable} />
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           
