@@ -8,7 +8,7 @@
  * but has access to chrome.runtime APIs that the web app doesn't.
  */
 
-const ALLOWED_ORIGIN = "https://stomp-template-send.vercel.app";
+const ALLOWED_ORIGIN = "https://stomp-template-send-sigma.vercel.app";
 
 // Map of connectionId → port for managing multiple simultaneous connections
 const connections = new Map();
@@ -127,7 +127,24 @@ window.addEventListener("message", (event) => {
 });
 
 // Inject a marker to let the page know the content script is loaded
-const marker = document.createElement("meta");
-marker.name = "stomp-local-agent";
-marker.content = "installed";
-document.head.appendChild(marker);
+function injectMarker() {
+  const marker = document.createElement("meta");
+  marker.name = "stomp-local-agent";
+  marker.content = "installed";
+  if (document.head) {
+    document.head.appendChild(marker);
+  } else {
+    // document.head doesn't exist yet at document_start, wait for it
+    const observer = new MutationObserver(() => {
+      if (document.head) {
+        document.head.appendChild(marker);
+        observer.disconnect();
+      }
+    });
+    observer.observe(document.documentElement || document, {
+      childList: true,
+      subtree: true,
+    });
+  }
+}
+injectMarker();

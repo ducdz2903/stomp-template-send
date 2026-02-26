@@ -11,13 +11,6 @@
  */
 export function isLocalAgentAvailable(): Promise<boolean> {
   return new Promise((resolve) => {
-    // Quick check: look for the meta tag injected by content script
-    const marker = document.querySelector('meta[name="stomp-local-agent"]');
-    if (!marker) {
-      resolve(false);
-      return;
-    }
-
     const connectionId = crypto.randomUUID();
     let resolved = false;
 
@@ -43,13 +36,13 @@ export function isLocalAgentAvailable(): Promise<boolean> {
       window.location.origin
     );
 
-    // Timeout after 1 second
+    // Timeout after 2 seconds (content script may need time to initialize)
     setTimeout(() => {
       if (!resolved) {
         window.removeEventListener('message', handler);
         resolve(false);
       }
-    }, 1000);
+    }, 2000);
   });
 }
 

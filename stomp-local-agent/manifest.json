@@ -20,7 +20,7 @@
   "content_scripts": [
     {
       "matches": [
-        "https://stomp-template-send.vercel.app/*"
+        "https://stomp-template-send-sigma.vercel.app/*"
       ],
       "js": ["content.js"],
       "run_at": "document_start"
