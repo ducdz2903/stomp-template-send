@@ -7,11 +7,25 @@
  * Instead of connecting directly to localhost (which browsers block
  * from public origins), it routes traffic through the extension's
  * privileged background service worker.
+ *
+ * Features:
+ *   - Transparent WebSocket API compatibility
+ *   - Reconnect awareness (WS_EVENT_RECONNECTING / WS_EVENT_RECONNECTED)
+ *   - onreconnecting / onreconnected callbacks for UI feedback
  */
 
 type WebSocketEventHandler = ((this: WebSocket, ev: Event) => void) | null;
 type MessageEventHandler = ((this: WebSocket, ev: MessageEvent) => void) | null;
 type CloseEventHandler = ((this: WebSocket, ev: CloseEvent) => void) | null;
+
+export interface ReconnectingEvent {
+  attempt: number;
+  delay: number;
+  maxAttempts: number;
+}
+
+export type ReconnectingHandler = ((event: ReconnectingEvent) => void) | null;
+export type ReconnectedHandler = (() => void) | null;
 
 export class AgentWebSocket {
   // WebSocket interface properties
@@ -27,11 +41,15 @@ export class AgentWebSocket {
   bufferedAmount: number = 0;
   binaryType: BinaryType = 'blob';
 
-  // Event handlers
+  // Standard WebSocket event handlers
   onopen: WebSocketEventHandler = null;
   onmessage: MessageEventHandler = null;
   onerror: WebSocketEventHandler = null;
   onclose: CloseEventHandler = null;
+
+  // Extension-specific reconnect event handlers
+  onreconnecting: ReconnectingHandler = null;
+  onreconnected: ReconnectedHandler = null;
 
   // Internal
   private connectionId: string;
@@ -81,6 +99,29 @@ export class AgentWebSocket {
               wasClean: data.wasClean ?? true,
             });
             this.onclose.call(this as unknown as WebSocket, closeEvent);
+          }
+          break;
+
+        // --- Reconnect events from extension background ---
+        case 'WS_EVENT_RECONNECTING':
+          this.readyState = this.CONNECTING;
+          if (this.onreconnecting) {
+            this.onreconnecting({
+              attempt: data.attempt,
+              delay: data.delay,
+              maxAttempts: data.maxAttempts,
+            });
+          }
+          break;
+
+        case 'WS_EVENT_RECONNECTED':
+          this.readyState = this.OPEN;
+          if (this.onreconnected) {
+            this.onreconnected();
+          }
+          // Also fire onopen so STOMP client re-establishes its session
+          if (this.onopen) {
+            this.onopen.call(this as unknown as WebSocket, new Event('open'));
           }
           break;
       }
@@ -144,7 +185,6 @@ export class AgentWebSocket {
 
   // EventTarget interface stubs (required by some libraries)
   addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
-    // Map addEventListener to the on* properties for simplicity
     switch (type) {
       case 'open':
         this.onopen = listener as WebSocketEventHandler;

@@ -82,8 +82,8 @@ window.addEventListener("message", (event) => {
         );
       });
 
-      // Forward the open request
-      port.postMessage({ type: "WS_OPEN", url: event.data.url });
+      // Forward the open request (include connectionId for WSManager tracking)
+      port.postMessage({ type: "WS_OPEN", url: event.data.url, connectionId });
       break;
     }
 

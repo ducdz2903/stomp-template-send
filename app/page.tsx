@@ -154,7 +154,15 @@ export default function StompDebugger() {
     // Use Agent WebSocket proxy when on Vercel targeting localhost
     if (useAgent) {
       stompClient.webSocketFactory = () => {
-        return new AgentWebSocket(url) as any;
+        const agentWs = new AgentWebSocket(url);
+        // Hook reconnect callbacks for UI feedback
+        agentWs.onreconnecting = (event) => {
+          addLog('info', `🔄 Reconnecting... attempt ${event.attempt}/${event.maxAttempts} (retry in ${Math.round(event.delay / 1000)}s)`);
+        };
+        agentWs.onreconnected = () => {
+          addLog('info', '✓ Reconnected successfully!');
+        };
+        return agentWs as any;
       };
     }
     // Fallback to SockJS if it's an http URL (running locally)
