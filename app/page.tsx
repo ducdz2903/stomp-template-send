@@ -197,15 +197,21 @@ export default function StompDebugger() {
         addLog('error', '💡 Gợi ý: Server không thể kết nối. Đảm bảo server đang chạy.');
       }
       
-      stompClient.deactivate();
-      setIsConnected(false);
-      setClient(null);
+      // Khi dùng Agent proxy: KHÔNG deactivate STOMP — để extension tự reconnect.
+      // Nếu deactivate ở đây, STOMP sẽ gọi close() → gửi WS_CLOSE → kill reconnect.
+      if (!useAgent) {
+        stompClient.deactivate();
+        setIsConnected(false);
+        setClient(null);
+      }
     };
 
     stompClient.onWebSocketClose = () => {
       setIsConnected(false);
       setClient(null);
-      addLog('error', '✗ WebSocket bị đóng. Kết nối không thành công.');
+      if (!useAgent) {
+        addLog('error', '✗ WebSocket bị đóng. Kết nối không thành công.');
+      }
     };
 
     stompClient.activate();

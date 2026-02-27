@@ -1,0 +1,38 @@
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Origin",
+          "operation": "set",
+          "value": "http://localhost"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||localhost",
+      "resourceTypes": ["websocket"]
+    }
+  },
+  {
+    "id": 2,
+    "priority": 1,
+    "action": {
+      "type": "modifyHeaders",
+      "requestHeaders": [
+        {
+          "header": "Origin",
+          "operation": "set",
+          "value": "http://127.0.0.1"
+        }
+      ]
+    },
+    "condition": {
+      "urlFilter": "||127.0.0.1",
+      "resourceTypes": ["websocket"]
+    }
+  }
+]

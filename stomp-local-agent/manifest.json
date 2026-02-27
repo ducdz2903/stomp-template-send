@@ -1,17 +1,25 @@
 {
   "name": "Stomp Local Agent",
   "description": "Allow stomp-template-send (Vercel) to access localhost WebSocket/API servers",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "manifest_version": 3,
 
-  "permissions": ["alarms"],
+  "permissions": ["alarms", "declarativeNetRequest"],
 
   "host_permissions": [
     "http://localhost/*",
-    "http://127.0.0.1/*",
-    "ws://localhost/*",
-    "ws://127.0.0.1/*"
+    "http://127.0.0.1/*"
   ],
+
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ws_origin_fix",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
 
   "background": {
     "service_worker": "background.js"

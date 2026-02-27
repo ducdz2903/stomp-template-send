@@ -22,15 +22,19 @@ window.addEventListener("message", (event) => {
   const { type, connectionId } = event.data || {};
 
   if (!type || !connectionId) return;
+  console.log(`[CS] Received message from page: type=${type} connectionId=${connectionId}`);
 
   switch (type) {
     case "AGENT_PING": {
+      console.log(`[CS] AGENT_PING - detecting extension...`);
       // Simple ping to detect extension presence
       try {
         const port = chrome.runtime.connect({ name: "stomp-local-agent" });
+        console.log(`[CS] Port created for PING`);
         port.postMessage({ type: "PING" });
         port.onMessage.addListener((msg) => {
           if (msg.type === "PONG") {
+            console.log(`[CS] PONG received - extension is available!`);
             window.postMessage(
               {
                 type: "AGENT_PONG",
@@ -45,19 +49,21 @@ window.addEventListener("message", (event) => {
         setTimeout(() => {
           try { port.disconnect(); } catch {}
         }, 2000);
-      } catch {
-        // Extension not available
+      } catch (err) {
+        console.error(`[CS] AGENT_PING failed:`, err);
       }
       break;
     }
 
     case "WS_OPEN": {
+      console.log(`[CS] WS_OPEN - creating port for connectionId=${connectionId} url=${event.data.url}`);
       // Create a new persistent port for this WebSocket connection
       const port = chrome.runtime.connect({ name: "stomp-local-agent" });
       connections.set(connectionId, port);
 
       // Relay all messages from background → web page
       port.onMessage.addListener((msg) => {
+        console.log(`[CS] Relay BG→Page:`, msg.type);
         window.postMessage(
           {
             ...msg,
@@ -69,6 +75,7 @@ window.addEventListener("message", (event) => {
 
       // Cleanup on disconnect
       port.onDisconnect.addListener(() => {
+        console.log(`[CS] Port disconnected for connectionId=${connectionId}`);
         connections.delete(connectionId);
         window.postMessage(
           {

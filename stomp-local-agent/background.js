@@ -30,6 +30,60 @@
 // Config
 // ---------------------------------------------------------------------------
 
+console.log("[BG] 🚀 Stomp Local Agent background service worker started");
+
+// ---------------------------------------------------------------------------
+// Register dynamic rules to rewrite Origin header for extension's own requests.
+// Static rules (rules.json) DON'T apply to extension-initiated requests by default.
+// We must use dynamic rules with initiatorDomains: [chrome.runtime.id].
+// ---------------------------------------------------------------------------
+(async () => {
+  const extId = chrome.runtime.id;
+  console.log(`[BG] Extension ID: ${extId}`);
+
+  // Remove old dynamic rules first, then add fresh ones
+  const existingRules = await chrome.declarativeNetRequest.getDynamicRules();
+  const oldIds = existingRules.map(r => r.id);
+
+  await chrome.declarativeNetRequest.updateDynamicRules({
+    removeRuleIds: oldIds,
+    addRules: [
+      {
+        id: 100,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [
+            { header: "Origin", operation: "set", value: "http://localhost" }
+          ]
+        },
+        condition: {
+          urlFilter: "||localhost",
+          resourceTypes: ["websocket"],
+          initiatorDomains: [extId]
+        }
+      },
+      {
+        id: 101,
+        priority: 1,
+        action: {
+          type: "modifyHeaders",
+          requestHeaders: [
+            { header: "Origin", operation: "set", value: "http://127.0.0.1" }
+          ]
+        },
+        condition: {
+          urlFilter: "||127.0.0.1",
+          resourceTypes: ["websocket"],
+          initiatorDomains: [extId]
+        }
+      }
+    ]
+  });
+
+  console.log("[BG] ✅ Dynamic declarativeNetRequest rules registered (Origin rewrite for WS)");
+})();
+
 const ALLOWED_ORIGINS = [
   "http://localhost",
   "http://127.0.0.1",
@@ -95,24 +149,30 @@ class WSConnection {
   // --- Lifecycle -----------------------------------------------------------
 
   connect() {
+    console.log(`[BG] WSConnection.connect() id=${this.id} url=${this.url}`);
     if (this.socket) {
+      console.log(`[BG] Closing existing socket before reconnect`);
       try { this.socket.close(); } catch {}
       this.socket = null;
     }
 
     this.status = "CONNECTING";
     const wsUrl = toWsUrl(this.url);
+    console.log(`[BG] Creating WebSocket to: ${wsUrl}`);
 
     try {
       this.socket = new WebSocket(wsUrl);
+      console.log(`[BG] WebSocket created, readyState=${this.socket.readyState}`);
       this.socket.binaryType = "arraybuffer";
 
       this.socket.onopen = () => {
+        console.log(`[BG] ✅ WebSocket OPEN id=${this.id}`);
         this.status = "OPEN";
         this.startHeartbeat();
 
         // If this was a reconnect, send RECONNECTED instead of OPEN
         if (this.reconnectAttempts > 0) {
+          console.log(`[BG] Reconnected after ${this.reconnectAttempts} attempts`);
           this.reconnectAttempts = 0;
           this._send({ type: "WS_EVENT_RECONNECTED" });
         } else {
@@ -130,7 +190,8 @@ class WSConnection {
         });
       };
 
-      this.socket.onerror = () => {
+      this.socket.onerror = (evt) => {
+        console.error(`[BG] ❌ WebSocket ERROR id=${this.id}`, evt);
         this._send({
           type: "WS_EVENT_ERROR",
           error: "WebSocket error occurred",
@@ -138,14 +199,15 @@ class WSConnection {
       };
 
       this.socket.onclose = (event) => {
+        console.log(`[BG] WebSocket CLOSE id=${this.id} code=${event.code} reason="${event.reason}" wasClean=${event.wasClean}`);
         this.stopHeartbeat();
         this.socket = null;
 
         if (this.shouldReconnect && !event.wasClean) {
-          // Unexpected close → try to reconnect
+          console.log(`[BG] Unexpected close, will reconnect...`);
           this.reconnect();
         } else {
-          // Clean close or user-requested close
+          console.log(`[BG] Clean close or user-requested, no reconnect`);
           this.status = "CLOSED";
           this._send({
             type: "WS_EVENT_CLOSE",
@@ -156,6 +218,7 @@ class WSConnection {
         }
       };
     } catch (err) {
+      console.error(`[BG] WebSocket constructor threw:`, err);
       this._send({ type: "WS_EVENT_ERROR", error: err.message });
     }
   }
@@ -214,7 +277,9 @@ class WSConnection {
   // --- Reconnect -----------------------------------------------------------
 
   reconnect() {
+    console.log(`[BG] reconnect() id=${this.id} attempt=${this.reconnectAttempts}/${this.maxReconnect}`);
     if (this.reconnectAttempts >= this.maxReconnect) {
+      console.log(`[BG] Max reconnect attempts reached, giving up`);
       this.status = "CLOSED";
       this._send({
         type: "WS_EVENT_CLOSE",
@@ -228,6 +293,7 @@ class WSConnection {
     this.reconnectAttempts++;
     this.status = "RECONNECTING";
     const delay = reconnectDelay(this.reconnectAttempts);
+    console.log(`[BG] Will retry in ${delay}ms (attempt ${this.reconnectAttempts})`);
 
     this._send({
       type: "WS_EVENT_RECONNECTING",
@@ -387,20 +453,25 @@ chrome.alarms.onAlarm.addListener((alarm) => {
 
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== "stomp-local-agent") return;
+  console.log(`[BG] Port connected: ${port.name}`);
 
   // Track connectionId → this port for this session
   let activeConnectionId = null;
 
   port.onMessage.addListener((msg) => {
+    console.log(`[BG] Port message received:`, msg.type, msg);
     switch (msg.type) {
       case "PING":
+        console.log(`[BG] PING received, sending PONG`);
         port.postMessage({ type: "PONG" });
         break;
 
       case "WS_OPEN": {
         const { url, connectionId } = msg;
+        console.log(`[BG] WS_OPEN url=${url} connectionId=${connectionId}`);
 
         if (!isAllowedUrl(url)) {
+          console.log(`[BG] URL not allowed: ${url}`);
           port.postMessage({
             type: "WS_EVENT_ERROR",
             error: `URL not allowed: ${url}. Only localhost URLs are permitted.`,
@@ -409,6 +480,7 @@ chrome.runtime.onConnect.addListener((port) => {
         }
 
         activeConnectionId = connectionId || port.name + "-" + Date.now();
+        console.log(`[BG] Creating connection with id=${activeConnectionId}`);
         wsManager.connect(activeConnectionId, url, port);
         break;
       }
@@ -488,7 +560,7 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 
   port.onDisconnect.addListener(() => {
-    // Destroy all connections associated with this port
+    console.log(`[BG] Port disconnected, destroying connections`);
     wsManager.destroyByPort(port);
     activeConnectionId = null;
   });
